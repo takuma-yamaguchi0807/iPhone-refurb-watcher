@@ -29,7 +29,7 @@ type Product struct {
 // 監視対象のフィルター条件
 var (
 	targetModels    = []string{"iPhone 15", "iPhone 16"}
-	targetStorages  = []string{"128GB", "256GB"}
+	targetStorages  = []string{"128GB", "256GB", "512GB"}
 	appleRefurbURL  = "https://www.apple.com/jp/shop/product-locator-meta?family=iphone&fts=refurbished"
 )
 
