@@ -1,9 +1,9 @@
 name: Check Apple Refurbished iPhone
 
 on:
-  schedule:
-    - cron: "0 */3 * * *" # 3時間ごと
-  workflow_dispatch: # 手動実行も可能
+  # schedule:
+  #   - cron: "0 */3 * * *" # 3時間ごと
+  workflow_dispatch: # 手動実行のみ
 
 jobs:
   check:
