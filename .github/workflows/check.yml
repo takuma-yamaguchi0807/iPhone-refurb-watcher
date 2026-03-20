@@ -2,39 +2,19 @@ name: Check Apple Refurbished iPhone
 
 on:
   schedule:
-    - cron: "0 */3 * * *" # 3時間ごと
+    - cron: "0 */4 * * *" # 4時間ごと
   workflow_dispatch: # 手動実行も可能
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    # 同一キーでの競合を避けるため、1回に1つだけ実行
-    concurrency:
-      group: check
-      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
 
-      # seen.json をキャッシュから復元（差分検知用）
-      - name: Restore seen cache
-        uses: actions/cache/restore@v4
-        with:
-          path: seen.json
-          key: seen-cache
-          restore-keys: |
-            seen-
-
-      # seen.json が存在しなければ初期化
-      - name: Initialize seen.json if not exists
-        run: |
-          if [ ! -f seen.json ]; then
-            echo "{}" > seen.json
-          fi
-
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Build
         run: go build -o checker ./cmd/checker
@@ -45,11 +25,3 @@ jobs:
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           SEEN_FILE: seen.json
         run: ./checker
-
-      # seen.json をキャッシュに保存
-      - name: Save seen cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: seen.json
-          key: seen-cache-${{ github.run_number }}

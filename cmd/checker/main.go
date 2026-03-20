@@ -32,24 +32,17 @@ type JsonLDProduct struct {
 // 監視対象のフィルター条件
 var (
 	targetModels    = []string{"iPhone 15", "iPhone 16"}
-	targetStorages  = []string{"128GB", "256GB", "512GB"}
+	targetStorages  = []string{"128GB", "256GB"}
 	appleRefurbURL  = "https://www.apple.com/jp/shop/refurbished/iphone"
 )
 
 func main() {
 	lineToken := os.Getenv("LINE_CHANNEL_ACCESS_TOKEN")
 	lineUserID := os.Getenv("LINE_USER_ID")
-	seenFile := os.Getenv("SEEN_FILE")
-	if seenFile == "" {
-		seenFile = "seen.json"
-	}
 
 	if lineToken == "" || lineUserID == "" {
 		log.Fatal("LINE_CHANNEL_ACCESS_TOKEN と LINE_USER_ID を環境変数に設定してください")
 	}
-
-	// 既通知済みの商品IDを読み込む
-	seen := loadSeen(seenFile)
 
 	// Apple APIから商品一覧を取得
 	products, err := fetchProducts()
@@ -60,23 +53,12 @@ func main() {
 	// フィルタリング
 	matched := filterProducts(products)
 
-	// 新規分だけ通知
-	newCount := 0
+	// すべての商品を通知
 	for _, p := range matched {
-		if seen[p.PartNumber] {
-			continue
-		}
 		if err := sendLINE(lineToken, lineUserID, p); err != nil {
 			log.Printf("LINE通知失敗 %s: %v", p.PartNumber, err)
 			continue
 		}
-		seen[p.PartNumber] = true
-		newCount++
-	}
-
-	// 既通知リストを保存
-	if err := saveSeen(seenFile, seen); err != nil {
-		log.Fatalf("seen.json 保存失敗: %v", err)
 	}
 }
 
@@ -221,22 +203,4 @@ func sendLINE(token, userID string, p Product) error {
 	}
 
 	return nil
-}
-
-func loadSeen(path string) map[string]bool {
-	seen := make(map[string]bool)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return seen // ファイルがなければ空で返す
-	}
-	_ = json.Unmarshal(data, &seen)
-	return seen
-}
-
-func saveSeen(path string, seen map[string]bool) error {
-	data, err := json.MarshalIndent(seen, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
 }
