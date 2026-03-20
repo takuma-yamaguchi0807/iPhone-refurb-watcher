@@ -33,8 +33,7 @@ type JsonLDProduct struct {
 	Name   string `json:"name"`
 	URL    string `json:"url"`
 	Offers []struct {
-		Price            string `json:"price"`
-		PriceCurrency    string `json:"priceCurrency"`
+		Price string `json:"price"`
 	} `json:"offers"`
 }
 
@@ -101,9 +100,7 @@ func fetchProducts() ([]Product, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Appleのページに通常のブラウザとして見せる
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html")
 	req.Header.Set("Accept-Language", "ja-JP,ja;q=0.9")
 
 	resp, err := client.Do(req)
@@ -121,69 +118,61 @@ func fetchProducts() ([]Product, error) {
 		return nil, err
 	}
 
-	// HTMLから JSON-LD を抽出
-	jsonLDList, err := extractJsonLD(string(body))
+	// HTMLから JSON-LD を抽出 → Product に変換
+	products, err := extractProducts(string(body))
 	if err != nil {
 		return nil, err
-	}
-
-	// JSON-LD から Product に変換
-	var products []Product
-	for i, j := range jsonLDList {
-		price := 0.0
-		if len(j.Offers) > 0 {
-			price = parsePrice(j.Offers[0].Price)
-		}
-		products = append(products, Product{
-			PartNumber:  fmt.Sprintf("product_%d", i),
-			ProductName: j.Name,
-			Price: struct {
-				CurrentPrice float64 `json:"currentPrice"`
-			}{CurrentPrice: price},
-			URL: j.URL,
-		})
 	}
 
 	return products, nil
 }
 
-// HTMLから JSON-LD を抽出
-func extractJsonLD(html string) ([]JsonLDProduct, error) {
+// HTMLから JSON-LD スクリプトタグを抽出してProduct配列に変換
+func extractProducts(html string) ([]Product, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return nil, err
 	}
 
-	var products []JsonLDProduct
+	var products []Product
+	idx := 0
 	
 	doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
-		jsonStr := s.Text()
 		var j JsonLDProduct
-		if err := json.Unmarshal([]byte(jsonStr), &j); err != nil {
+		if err := json.Unmarshal([]byte(s.Text()), &j); err != nil {
 			return
 		}
+
+		// name と url があれば Product に追加
 		if j.Name != "" && j.URL != "" {
-			products = append(products, j)
+			price := 0.0
+			if len(j.Offers) > 0 {
+				price = parsePrice(j.Offers[0].Price)
+			}
+
+			products = append(products, Product{
+				PartNumber:  fmt.Sprintf("product_%d", idx),
+				ProductName: j.Name,
+				Price: struct {
+					CurrentPrice float64 `json:"currentPrice"`
+				}{CurrentPrice: price},
+				URL: j.URL,
+			})
+			idx++
 		}
 	})
 
 	if len(products) == 0 {
-		return nil, fmt.Errorf("JSON-LD データが見つかりません")
+		return nil, fmt.Errorf("商品が見つかりません")
 	}
-	
+
 	return products, nil
 }
 
-// 価格文字列をパース
+// 価格文字列をパース（数字のみを抽出）
 func parsePrice(priceStr string) float64 {
-	// 数字のみを抽出
-	re := regexp.MustCompile(`[\d,]+`)
-	numStr := re.FindString(priceStr)
-	if numStr == "" {
-		return 0
-	}
-	// カンマを削除して float64 に変換
-	numStr = strings.ReplaceAll(numStr, ",", "")
+	re := regexp.MustCompile(`\d+`)
+	numStr := strings.Join(re.FindAllString(priceStr, -1), "")
 	var price float64
 	fmt.Sscanf(numStr, "%f", &price)
 	return price
@@ -295,11 +284,4 @@ func saveSeen(path string, seen map[string]bool) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
