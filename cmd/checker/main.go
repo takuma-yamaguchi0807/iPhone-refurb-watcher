@@ -30,11 +30,8 @@ type Product struct {
 
 // JSON-LD 形式（HTMLから抽出される構造）
 type JsonLDProduct struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Offers []struct {
-		Price string `json:"price"`
-	} `json:"offers"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // 監視対象のフィルター条件
@@ -145,7 +142,7 @@ func fetchProducts() ([]Product, error) {
 
 	log.Printf("商品抽出成功: %d件", len(products))
 	for i, p := range products {
-		log.Printf("  [%d] %s - ¥%.0f", i+1, p.ProductName, p.Price.CurrentPrice)
+		log.Printf("  [%d] %s", i+1, p.ProductName)
 	}
 
 	return products, nil
@@ -179,18 +176,12 @@ func extractProducts(html string) ([]Product, error) {
 		
 		// name と url があれば Product に追加
 		if j.Name != "" && j.URL != "" {
-			price := 0.0
-			if len(j.Offers) > 0 {
-				price = parsePrice(j.Offers[0].Price)
-				log.Printf("  → price: %.0f", price)
-			}
-
 			products = append(products, Product{
 				PartNumber:  fmt.Sprintf("product_%d", idx),
 				ProductName: j.Name,
 				Price: struct {
 					CurrentPrice float64 `json:"currentPrice"`
-				}{CurrentPrice: price},
+				}{CurrentPrice: 0},
 				URL: j.URL,
 			})
 			log.Printf("  → Product に追加 [ID: product_%d]", idx)
@@ -209,14 +200,7 @@ func extractProducts(html string) ([]Product, error) {
 	return products, nil
 }
 
-// 価格文字列をパース（数字のみを抽出）
-func parsePrice(priceStr string) float64 {
-	re := regexp.MustCompile(`\d+`)
-	numStr := strings.Join(re.FindAllString(priceStr, -1), "")
-	var price float64
-	fmt.Sscanf(numStr, "%f", &price)
-	return price
-}
+
 
 func filterProducts(products []Product) []Product {
 	var matched []Product
@@ -263,9 +247,8 @@ func sendLINE(token, userID string, p Product) error {
 	}
 	
 	message := fmt.Sprintf(
-		"🍎 認定整備品 入荷通知\n\n📱 %s\n💴 ¥%s\n🔗 %s",
+		"🍎 認定整備品 入荷通知\n\n📱 %s\n� %s",
 		p.ProductName,
-		formatPrice(p.Price.CurrentPrice),
 		productURL,
 	)
 
