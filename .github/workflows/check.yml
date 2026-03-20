@@ -8,16 +8,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 同一キーでの競合を避けるため、1回に1つだけ実行
+    concurrency:
+      group: check
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
 
       # seen.json をキャッシュから復元（差分検知用）
       - name: Restore seen cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: seen.json
-          key: seen-latest
+          key: seen-cache
           restore-keys: |
             seen-
 
@@ -28,9 +32,9 @@ jobs:
             echo "{}" > seen.json
           fi
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.22"
+          go-version: "1.23"
 
       - name: Build
         run: go build -o checker ./cmd/checker
@@ -48,4 +52,4 @@ jobs:
         if: always()
         with:
           path: seen.json
-          key: seen-latest
+          key: seen-cache-${{ github.run_number }}
