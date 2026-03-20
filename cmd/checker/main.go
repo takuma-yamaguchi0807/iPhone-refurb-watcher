@@ -41,7 +41,7 @@ type JsonLDProduct struct {
 var (
 	targetModels    = []string{"iPhone 15", "iPhone 16"}
 	targetStorages  = []string{"128GB", "256GB", "512GB"}
-	appleRefurbURL  = "https://www.apple.com/jp/shop/product-locator-meta?family=iphone&fts=refurbished"
+	appleRefurbURL  = "https://www.apple.com/jp/shop/refurbished/iphone"
 )
 
 func main() {
