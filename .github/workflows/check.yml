@@ -17,9 +17,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: seen.json
-          key: seen-cache-latest
+          key: seen-latest
           restore-keys: |
-            seen-cache-
+            seen-
 
       # seen.json が存在しなければ初期化
       - name: Initialize seen.json if not exists
@@ -31,7 +31,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-          cache: true
 
       - name: Build
         run: go build -o checker ./cmd/checker
@@ -49,4 +48,4 @@ jobs:
         if: always()
         with:
           path: seen.json
-          key: seen-cache-latest
+          key: seen-latest
