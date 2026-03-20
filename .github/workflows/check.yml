@@ -17,9 +17,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: seen.json
-          key: seen-cache-${{ github.run_id }}
+          key: seen-cache-latest
           restore-keys: |
             seen-cache-
+
+      # seen.json が存在しなければ初期化
+      - name: Initialize seen.json if not exists
+        run: |
+          if [ ! -f seen.json ]; then
+            echo "{}" > seen.json
+          fi
 
       - uses: actions/setup-go@v5
         with:
@@ -42,4 +49,4 @@ jobs:
         if: always()
         with:
           path: seen.json
-          key: seen-cache-${{ github.run_id }}
+          key: seen-cache-latest
