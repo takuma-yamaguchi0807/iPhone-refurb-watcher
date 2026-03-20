@@ -45,6 +45,8 @@ var (
 )
 
 func main() {
+	log.Printf("=== iPhone 整備品チェッカー 開始 ===")
+	
 	lineToken := os.Getenv("LINE_CHANNEL_ACCESS_TOKEN")
 	lineUserID := os.Getenv("LINE_USER_ID")
 	seenFile := os.Getenv("SEEN_FILE")
@@ -52,12 +54,18 @@ func main() {
 		seenFile = "seen.json"
 	}
 
+	log.Printf("設定確認:")
+	log.Printf("  LINE トークン: %s (セット: %v)", maskToken(lineToken), lineToken != "")
+	log.Printf("  LINE ユーザーID: %s", lineUserID)
+	log.Printf("  seen.json パス: %s", seenFile)
+
 	if lineToken == "" || lineUserID == "" {
 		log.Fatal("LINE_CHANNEL_ACCESS_TOKEN と LINE_USER_ID を環境変数に設定してください")
 	}
 
 	// 既通知済みの商品IDを読み込む
 	seen := loadSeen(seenFile)
+	log.Printf("既通知リスト読み込み: %d件", len(seen))
 
 	// Apple APIから商品一覧を取得
 	products, err := fetchProducts()
@@ -92,12 +100,16 @@ func main() {
 	if err := saveSeen(seenFile, seen); err != nil {
 		log.Fatalf("seen.json 保存失敗: %v", err)
 	}
+	log.Printf("=== 完了 ===")
 }
 
 func fetchProducts() ([]Product, error) {
+	log.Printf("Apple API からデータ取得開始: %s", appleRefurbURL)
+	
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", appleRefurbURL, nil)
 	if err != nil {
+		log.Printf("リクエスト作成失敗: %v", err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -105,9 +117,12 @@ func fetchProducts() ([]Product, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("HTTP リクエスト失敗: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	log.Printf("HTTP レスポンス ステータス: %d", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTPステータス: %d", resp.StatusCode)
@@ -115,13 +130,22 @@ func fetchProducts() ([]Product, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("レスポンス読み込み失敗: %v", err)
 		return nil, err
 	}
+
+	log.Printf("レスポンス サイズ: %d bytes", len(body))
 
 	// HTMLから JSON-LD を抽出 → Product に変換
 	products, err := extractProducts(string(body))
 	if err != nil {
+		log.Printf("商品抽出失敗: %v", err)
 		return nil, err
+	}
+
+	log.Printf("商品抽出成功: %d件", len(products))
+	for i, p := range products {
+		log.Printf("  [%d] %s - ¥%.0f", i+1, p.ProductName, p.Price.CurrentPrice)
 	}
 
 	return products, nil
@@ -131,23 +155,34 @@ func fetchProducts() ([]Product, error) {
 func extractProducts(html string) ([]Product, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
+		log.Printf("HTML パース失敗: %v", err)
 		return nil, err
 	}
 
 	var products []Product
 	idx := 0
+	jsonLDCount := 0
 	
 	doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
+		jsonLDCount++
+		jsonText := s.Text()
+		log.Printf("JSON-LD [%d] 発見 (サイズ: %d bytes)", jsonLDCount, len(jsonText))
+
 		var j JsonLDProduct
-		if err := json.Unmarshal([]byte(s.Text()), &j); err != nil {
+		if err := json.Unmarshal([]byte(jsonText), &j); err != nil {
+			log.Printf("  → JSON パース失敗: %v", err)
 			return
 		}
 
+		log.Printf("  → name: %s", j.Name)
+		log.Printf("  → url: %s", j.URL)
+		
 		// name と url があれば Product に追加
 		if j.Name != "" && j.URL != "" {
 			price := 0.0
 			if len(j.Offers) > 0 {
 				price = parsePrice(j.Offers[0].Price)
+				log.Printf("  → price: %.0f", price)
 			}
 
 			products = append(products, Product{
@@ -158,12 +193,17 @@ func extractProducts(html string) ([]Product, error) {
 				}{CurrentPrice: price},
 				URL: j.URL,
 			})
+			log.Printf("  → Product に追加 [ID: product_%d]", idx)
 			idx++
+		} else {
+			log.Printf("  → スキップ (name や url が空)")
 		}
 	})
 
+	log.Printf("合計 JSON-LD タグ: %d個、Product 追加: %d件", jsonLDCount, len(products))
+
 	if len(products) == 0 {
-		return nil, fmt.Errorf("商品が見つかりません")
+		return nil, fmt.Errorf("商品が見つかりません (JSON-LDタグ %d個検出)", jsonLDCount)
 	}
 
 	return products, nil
@@ -183,12 +223,27 @@ func filterProducts(products []Product) []Product {
 	modelRe := buildRegexp(targetModels)
 	storageRe := buildRegexp(targetStorages)
 
+	log.Printf("フィルタリング開始")
+	log.Printf("  対象モデル: %v", targetModels)
+	log.Printf("  対象容量: %v", targetStorages)
+
 	for _, p := range products {
 		name := p.ProductName
-		if modelRe.MatchString(name) && storageRe.MatchString(name) {
+		modelMatch := modelRe.MatchString(name)
+		storageMatch := storageRe.MatchString(name)
+		
+		log.Printf("  [%s]", name)
+		log.Printf("    モデル: %v, 容量: %v", modelMatch, storageMatch)
+		
+		if modelMatch && storageMatch {
 			matched = append(matched, p)
+			log.Printf("    → 条件に一致 ✓")
+		} else {
+			log.Printf("    → 不一致 ✗")
 		}
 	}
+
+	log.Printf("フィルタリング完了: %d件 → %d件", len(products), len(matched))
 	return matched
 }
 
@@ -284,4 +339,12 @@ func saveSeen(path string, seen map[string]bool) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// トークンをマスク表示（ログ出力用）
+func maskToken(token string) string {
+	if len(token) <= 8 {
+		return "****"
+	}
+	return token[:4] + "****" + token[len(token)-4:]
 }
