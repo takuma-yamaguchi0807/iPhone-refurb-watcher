@@ -10,6 +10,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 // Apple 認定整備品APIのレスポンス構造
@@ -24,6 +26,16 @@ type Product struct {
 		CurrentPrice float64 `json:"currentPrice"`
 	} `json:"price"`
 	URL string `json:"productDetailsPageURL"`
+}
+
+// JSON-LD 形式（HTMLから抽出される構造）
+type JsonLDProduct struct {
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	Offers []struct {
+		Price            string `json:"price"`
+		PriceCurrency    string `json:"priceCurrency"`
+	} `json:"offers"`
 }
 
 // 監視対象のフィルター条件
@@ -91,7 +103,7 @@ func fetchProducts() ([]Product, error) {
 	}
 	// Appleのページに通常のブラウザとして見せる
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "text/html")
 	req.Header.Set("Accept-Language", "ja-JP,ja;q=0.9")
 
 	resp, err := client.Do(req)
@@ -109,12 +121,72 @@ func fetchProducts() ([]Product, error) {
 		return nil, err
 	}
 
-	var result AppleResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("JSONパース失敗: %v\nボディ: %s", err, string(body[:min(500, len(body))]))
+	// HTMLから JSON-LD を抽出
+	jsonLDList, err := extractJsonLD(string(body))
+	if err != nil {
+		return nil, err
 	}
 
-	return result.Products, nil
+	// JSON-LD から Product に変換
+	var products []Product
+	for i, j := range jsonLDList {
+		price := 0.0
+		if len(j.Offers) > 0 {
+			price = parsePrice(j.Offers[0].Price)
+		}
+		products = append(products, Product{
+			PartNumber:  fmt.Sprintf("product_%d", i),
+			ProductName: j.Name,
+			Price: struct {
+				CurrentPrice float64 `json:"currentPrice"`
+			}{CurrentPrice: price},
+			URL: j.URL,
+		})
+	}
+
+	return products, nil
+}
+
+// HTMLから JSON-LD を抽出
+func extractJsonLD(html string) ([]JsonLDProduct, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, err
+	}
+
+	var products []JsonLDProduct
+	
+	doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
+		jsonStr := s.Text()
+		var j JsonLDProduct
+		if err := json.Unmarshal([]byte(jsonStr), &j); err != nil {
+			return
+		}
+		if j.Name != "" && j.URL != "" {
+			products = append(products, j)
+		}
+	})
+
+	if len(products) == 0 {
+		return nil, fmt.Errorf("JSON-LD データが見つかりません")
+	}
+	
+	return products, nil
+}
+
+// 価格文字列をパース
+func parsePrice(priceStr string) float64 {
+	// 数字のみを抽出
+	re := regexp.MustCompile(`[\d,]+`)
+	numStr := re.FindString(priceStr)
+	if numStr == "" {
+		return 0
+	}
+	// カンマを削除して float64 に変換
+	numStr = strings.ReplaceAll(numStr, ",", "")
+	var price float64
+	fmt.Sscanf(numStr, "%f", &price)
+	return price
 }
 
 func filterProducts(products []Product) []Product {
@@ -140,7 +212,12 @@ func buildRegexp(patterns []string) *regexp.Regexp {
 }
 
 func sendLINE(token, userID string, p Product) error {
-	productURL := fmt.Sprintf("https://www.apple.com%s", p.URL)
+	// URLが既に完全形式か確認
+	productURL := p.URL
+	if !strings.HasPrefix(p.URL, "http") {
+		productURL = fmt.Sprintf("https://www.apple.com%s", p.URL)
+	}
+	
 	message := fmt.Sprintf(
 		"🍎 認定整備品 入荷通知\n\n📱 %s\n💴 ¥%s\n🔗 %s",
 		p.ProductName,
