@@ -2,7 +2,7 @@ name: Check Apple Refurbished iPhone
 
 on:
   schedule:
-    - cron: "0 */4 * * *" # 4時間ごと
+    - cron: "0 */2 * * *" # 4時間ごと
   workflow_dispatch: # 手動実行も可能
 
 jobs:
